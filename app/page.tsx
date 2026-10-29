@@ -270,6 +270,30 @@ export default function Home() {
       toast.error('Failed to submit application: ' + error.message);
     } else {
       toast.success('Leave request submitted successfully!');
+
+      // Send email notification to Manager
+      const selectedTypeName = leaveTypes.find((t) => t.id === selectedType)?.name || 'Leave';
+      fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: 'shafiqferdaus@oum.edu.my',
+          subject: `[HYDAC Leave Portal] New Leave Application from ${userName || userEmail}`,
+          html: `
+            <div style="font-family: sans-serif; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
+              <h2 style="color: #1e3a8a;">New Leave Application</h2>
+              <p>Employee <strong>${userName || userEmail}</strong> has submitted a new leave application.</p>
+              <ul>
+                <li><strong>Type:</strong> ${selectedTypeName}</li>
+                <li><strong>Dates:</strong> ${startDate} to ${endDate} (${totalDays} day/s)</li>
+                <li><strong>Reason:</strong> ${reason}</li>
+              </ul>
+              <p>Please log in to the <a href="https://leave-management-app-seven-omega.vercel.app/manager">Manager Dashboard</a> to review this application.</p>
+            </div>
+          `,
+        }),
+      }).catch((err) => console.error('Email notification error:', err));
+
       setSelectedType('');
       setStartDate('');
       setEndDate('');

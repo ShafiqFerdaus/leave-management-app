@@ -62,7 +62,6 @@ export default function ManagerDashboard() {
       console.warn('Role verification error:', error?.message);
     }
 
-    // Trim whitespace to handle trailing spaces from database string values
     const rawRole = userProfile?.role || 'UNKNOWN';
     const userRole = rawRole.toString().trim().toUpperCase();
     setActiveRole(userRole);
@@ -180,18 +179,61 @@ export default function ManagerDashboard() {
     }
 
     toast.success(`Leave application for ${req.users?.full_name || 'employee'} approved.`);
+
+    // Send email notification to applicant
+    if (req.users?.email) {
+      fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: req.users.email,
+          subject: `[HYDAC Leave Portal] Leave Application Approved`,
+          html: `
+            <div style="font-family: sans-serif; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
+              <h2 style="color: #166534;">Leave Application Approved</h2>
+              <p>Hi <strong>${req.users.full_name}</strong>,</p>
+              <p>Your leave application for <strong>${req.leave_types?.name}</strong> (${req.start_date} to ${req.end_date}) has been <span style="color: #166534; font-weight: bold;">APPROVED</span>.</p>
+            </div>
+          `,
+        }),
+      }).catch((err) => console.error('Email notification error:', err));
+    }
+
     setActionLoading(null);
     fetchRequests();
   };
 
   const handleReject = async (id: string, applicantName?: string) => {
     setActionLoading(id);
+    
+    const targetReq = requests.find((r) => r.id === id);
+
     await supabase
       .from('leave_requests')
       .update({ status: 'REJECTED' })
       .eq('id', id);
 
     toast.error(`Leave application for ${applicantName || 'employee'} rejected.`);
+
+    // Send email notification to applicant
+    if (targetReq?.users?.email) {
+      fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: targetReq.users.email,
+          subject: `[HYDAC Leave Portal] Leave Application Status Update`,
+          html: `
+            <div style="font-family: sans-serif; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
+              <h2 style="color: #991b1b;">Leave Application Status Update</h2>
+              <p>Hi <strong>${applicantName || 'Employee'}</strong>,</p>
+              <p>Your leave application (${targetReq.start_date} to ${targetReq.end_date}) has been <span style="color: #991b1b; font-weight: bold;">REJECTED</span>.</p>
+            </div>
+          `,
+        }),
+      }).catch((err) => console.error('Email notification error:', err));
+    }
+
     setActionLoading(null);
     fetchRequests();
   };
