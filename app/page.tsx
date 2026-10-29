@@ -143,6 +143,21 @@ export default function Home() {
       return;
     }
 
+    // SEMAKAN MANDATORI DOKUMEN SOKONGAN UNTUK MC DAN EMERGENCY LEAVE (EL)
+    const selectedTypeObj = leaveTypes.find((t) => t.id === selectedType);
+    const selectedTypeName = selectedTypeObj?.name.toLowerCase() || '';
+
+    const isAttachmentMandatory =
+      selectedTypeName.includes('medical') ||
+      selectedTypeName.includes('mc') ||
+      selectedTypeName.includes('emergency') ||
+      selectedTypeName.includes('el');
+
+    if (isAttachmentMandatory && !file) {
+      toast.error('Supporting document (MC / Attachment) is required for Medical and Emergency Leave.');
+      return;
+    }
+
     setSubmitting(true);
     let attachmentUrl = '';
 
@@ -189,7 +204,6 @@ export default function Home() {
       toast.success('Leave request submitted successfully!');
 
       // Send email notification to Manager (Resend Free Tier Test Target)
-      const selectedTypeName = leaveTypes.find((t) => t.id === selectedType)?.name || 'Leave';
       fetch('/api/send-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -201,7 +215,7 @@ export default function Home() {
               <h2 style="color: #1e3a8a;">New Leave Application</h2>
               <p>Employee <strong>${userName || userEmail}</strong> has submitted a new leave application.</p>
               <ul>
-                <li><strong>Type:</strong> ${selectedTypeName}</li>
+                <li><strong>Type:</strong> ${selectedTypeObj?.name || 'Leave'}</li>
                 <li><strong>Dates:</strong> ${startDate} to ${endDate} (${totalDays} day/s)</li>
                 <li><strong>Reason:</strong> ${reason}</li>
               </ul>
@@ -209,7 +223,16 @@ export default function Home() {
             </div>
           `,
         }),
-      }).catch((err) => console.error('Email notification error:', err));
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.error) {
+            console.error('Email sending failed:', data.error);
+          } else {
+            console.log('Email sent successfully:', data);
+          }
+        })
+        .catch((err) => console.error('Email fetch error:', err));
 
       setSelectedType('');
       setStartDate('');
@@ -227,6 +250,15 @@ export default function Home() {
       </main>
     );
   }
+
+  // Tentukan sama ada pilihan jenis cuti semasa memerlukan dokumen sokongan
+  const currentSelectedTypeObj = leaveTypes.find((t) => t.id === selectedType);
+  const currentTypeName = currentSelectedTypeObj?.name.toLowerCase() || '';
+  const isCurrentTypeAttachmentRequired =
+    currentTypeName.includes('medical') ||
+    currentTypeName.includes('mc') ||
+    currentTypeName.includes('emergency') ||
+    currentTypeName.includes('el');
 
   return (
     <main className="min-h-screen bg-gray-50 py-10 px-4 sm:px-6 lg:px-8">
@@ -295,9 +327,12 @@ export default function Home() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Supporting Document (MC / Attachment)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Supporting Document (MC / Attachment) {isCurrentTypeAttachmentRequired && <span className="text-red-600 font-bold">*</span>}
+                </label>
                 <input
                   type="file"
+                  required={isCurrentTypeAttachmentRequired}
                   onChange={(e) => setFile(e.target.files ? e.target.files[0] : null)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs text-gray-900 focus:outline-none"
                 />
