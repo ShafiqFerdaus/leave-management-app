@@ -129,6 +129,15 @@ export default function Home() {
     if (requests) setMyRequests(requests as any);
   }
 
+  // Cek apakah jenis cuti yang dipilih adalah MC atau Emergency Leave (EL)
+  const currentSelectedTypeObj = leaveTypes.find((t) => t.id === selectedType);
+  const currentTypeName = currentSelectedTypeObj?.name.toLowerCase() || '';
+  const isCurrentTypeAttachmentRequired =
+    currentTypeName.includes('medical') ||
+    currentTypeName.includes('mc') ||
+    currentTypeName.includes('emergency') ||
+    currentTypeName.includes('el');
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -143,17 +152,8 @@ export default function Home() {
       return;
     }
 
-    // SEMAKAN MANDATORI DOKUMEN SOKONGAN UNTUK MC DAN EMERGENCY LEAVE (EL)
-    const selectedTypeObj = leaveTypes.find((t) => t.id === selectedType);
-    const selectedTypeName = selectedTypeObj?.name.toLowerCase() || '';
-
-    const isAttachmentMandatory =
-      selectedTypeName.includes('medical') ||
-      selectedTypeName.includes('mc') ||
-      selectedTypeName.includes('emergency') ||
-      selectedTypeName.includes('el');
-
-    if (isAttachmentMandatory && !file) {
+    // Dokumen wajib diunggah jika memilih MC atau Emergency Leave
+    if (isCurrentTypeAttachmentRequired && !file) {
       toast.error('Supporting document (MC / Attachment) is required for Medical and Emergency Leave.');
       return;
     }
@@ -161,12 +161,12 @@ export default function Home() {
     setSubmitting(true);
     let attachmentUrl = '';
 
-    // Handle File Upload if exists
-    if (file) {
+    // Upload file ke bucket 'mc-attachments'
+    if (file && isCurrentTypeAttachmentRequired) {
       const fileExt = file.name.split('.').pop();
       const fileName = `${userId}_${Date.now()}.${fileExt}`;
       const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('attachments')
+        .from('mc-attachments')
         .upload(fileName, file);
 
       if (uploadError) {
@@ -176,7 +176,7 @@ export default function Home() {
       }
 
       const { data: publicUrlData } = supabase.storage
-        .from('attachments')
+        .from('mc-attachments')
         .getPublicUrl(fileName);
 
       attachmentUrl = publicUrlData.publicUrl;
@@ -203,7 +203,7 @@ export default function Home() {
     } else {
       toast.success('Leave request submitted successfully!');
 
-      // Send email notification to Manager (Resend Free Tier Test Target)
+      // Send email notification to Manager
       fetch('/api/send-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -215,7 +215,7 @@ export default function Home() {
               <h2 style="color: #1e3a8a;">New Leave Application</h2>
               <p>Employee <strong>${userName || userEmail}</strong> has submitted a new leave application.</p>
               <ul>
-                <li><strong>Type:</strong> ${selectedTypeObj?.name || 'Leave'}</li>
+                <li><strong>Type:</strong> ${currentSelectedTypeObj?.name || 'Leave'}</li>
                 <li><strong>Dates:</strong> ${startDate} to ${endDate} (${totalDays} day/s)</li>
                 <li><strong>Reason:</strong> ${reason}</li>
               </ul>
@@ -250,15 +250,6 @@ export default function Home() {
       </main>
     );
   }
-
-  // Tentukan sama ada pilihan jenis cuti semasa memerlukan dokumen sokongan
-  const currentSelectedTypeObj = leaveTypes.find((t) => t.id === selectedType);
-  const currentTypeName = currentSelectedTypeObj?.name.toLowerCase() || '';
-  const isCurrentTypeAttachmentRequired =
-    currentTypeName.includes('medical') ||
-    currentTypeName.includes('mc') ||
-    currentTypeName.includes('emergency') ||
-    currentTypeName.includes('el');
 
   return (
     <main className="min-h-screen bg-gray-50 py-10 px-4 sm:px-6 lg:px-8">
@@ -308,13 +299,16 @@ export default function Home() {
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-6">
           <h2 className="text-xl font-semibold text-gray-800 border-b pb-3">Apply for Leave</h2>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className={`grid grid-cols-1 ${isCurrentTypeAttachmentRequired ? 'sm:grid-cols-2' : 'sm:grid-cols-1'} gap-4`}>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Leave Type *</label>
                 <select
                   required
                   value={selectedType}
-                  onChange={(e) => setSelectedType(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedType(e.target.value);
+                    setFile(null);
+                  }}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-900"
                 >
                   <option value="">Select Leave Type</option>
@@ -326,17 +320,20 @@ export default function Home() {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Supporting Document (MC / Attachment) {isCurrentTypeAttachmentRequired && <span className="text-red-600 font-bold">*</span>}
-                </label>
-                <input
-                  type="file"
-                  required={isCurrentTypeAttachmentRequired}
-                  onChange={(e) => setFile(e.target.files ? e.target.files[0] : null)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs text-gray-900 focus:outline-none"
-                />
-              </div>
+              {/* KOLOM DOKUMEN HANYA MUNCUL JIKA LEAVE TYPE MC ATAU EL */}
+              {isCurrentTypeAttachmentRequired && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Supporting Document (MC / Attachment) <span className="text-red-600 font-bold">*</span>
+                  </label>
+                  <input
+                    type="file"
+                    required
+                    onChange={(e) => setFile(e.target.files ? e.target.files[0] : null)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs text-gray-900 focus:outline-none"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
