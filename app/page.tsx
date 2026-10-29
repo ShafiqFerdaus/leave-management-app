@@ -399,4 +399,30 @@ export default function Home() {
                             View
                           </a>
                         ) : (
-                          <span
+                          <span className="text-gray-400 text-xs">-</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span
+                          className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                            req.status === 'APPROVED'
+                              ? 'bg-green-100 text-green-800'
+                              : req.status === 'REJECTED'
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-yellow-100 text-yellow-800'
+                          }`}
+                        >
+                          {req.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}
