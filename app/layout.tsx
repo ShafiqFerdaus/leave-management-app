@@ -1,6 +1,6 @@
 import './globals.css';
 import { Toaster } from 'sonner';
-import MacDock from './components/MacDock'; // Updated import path to match app/components location
+import MacDock from './components/MacDock';
 
 export const metadata = {
   title: 'HYDAC Leave Portal',
@@ -14,10 +14,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="bg-gradient-to-br from-slate-100 via-blue-50 to-indigo-100 min-h-screen text-gray-900 antialiased relative">
+      <body className="bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-100/70 via-slate-100/80 to-indigo-100/70 min-h-screen text-gray-900 antialiased relative">
         <Toaster position="top-right" richColors />
         {children}
-        {/* macOS Dock Navigation Bar */}
+        {/* Liquid Glass macOS Dock Navigation */}
         <MacDock />
       </body>
     </html>
