@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { User } from 'lucide-react';
+import { User, Crop, Check, X } from 'lucide-react';
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -19,7 +19,12 @@ export default function ProfilePage() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [joinedDate, setJoinedDate] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
-  const [yearsOfService, setYearsOfService] = useState<string>('0');
+  const [yearsOfService, setYearsOfService] = useState<string>('0.0');
+
+  // Image Cropper Modal States
+  const [selectedImageSrc, setSelectedImageSrc] = useState<string | null>(null);
+  const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const imageRef = useRef<HTMLImageElement | null>(null);
 
   // Security password change states
   const [newPassword, setNewPassword] = useState('');
@@ -55,9 +60,9 @@ export default function ProfilePage() {
       setPhoneNumber(profile.phone_number || '');
       setAvatarUrl(profile.avatar_url || '');
 
-      const initialJoinedDate = profile.joined_date || new Date().toISOString().split('T')[0];
-      setJoinedDate(initialJoinedDate);
-      calculateTenure(initialJoinedDate);
+      const userJoined = profile.joined_date || '2024-01-01';
+      setJoinedDate(userJoined);
+      calculateTenure(userJoined);
     }
 
     setLoading(false);
@@ -78,26 +83,61 @@ export default function ProfilePage() {
     calculateTenure(val);
   };
 
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    try {
-      if (!e.target.files || e.target.files.length === 0) return;
+  // Open Image Crop Modal on file select
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = () => {
+        setSelectedImageSrc(reader.result as string);
+        setZoomLevel(1);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Process HTML5 Canvas Circular Crop and Upload to Supabase Storage
+  const handleCropAndUpload = async () => {
+    if (!selectedImageSrc || !imageRef.current) return;
+
+    try {
       setUploadingAvatar(true);
+      const canvas = document.createElement('canvas');
+      const size = 300;
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
 
-      const fileExt = file.name.split('.').pop();
-      const filePath = `${userId}-${Math.random()}.${fileExt}`;
+      if (ctx && imageRef.current) {
+        ctx.beginPath();
+        ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+        ctx.clip();
 
-      // Upload image to Supabase avatars storage bucket
+        const img = imageRef.current;
+        const minDim = Math.min(img.naturalWidth, img.naturalHeight);
+        const cropSize = minDim / zoomLevel;
+        const startX = (img.naturalWidth - cropSize) / 2;
+        const startY = (img.naturalHeight - cropSize) / 2;
+
+        ctx.drawImage(img, startX, startY, cropSize, cropSize, 0, 0, size, size);
+      }
+
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/jpeg', 0.9)
+      );
+
+      if (!blob) throw new Error('Canvas cropping failed');
+
+      const filePath = `${userId}-${Date.now()}.jpg`;
       const { error: uploadError } = await supabase.storage
         .from('avatars')
-        .upload(filePath, file, { upsert: true });
+        .upload(filePath, blob, { upsert: true });
 
       if (uploadError) throw uploadError;
 
       const { data: publicUrlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
       const publicUrl = publicUrlData.publicUrl;
 
-      // Update avatar_url in public.users table
       const { error: updateError } = await supabase
         .from('users')
         .update({ avatar_url: publicUrl })
@@ -106,9 +146,10 @@ export default function ProfilePage() {
       if (updateError) throw updateError;
 
       setAvatarUrl(publicUrl);
-      toast.success('Profile picture updated successfully!');
+      setSelectedImageSrc(null);
+      toast.success('Profile picture cropped and updated successfully!');
     } catch (err: any) {
-      toast.error('Failed to upload image: ' + err.message);
+      toast.error('Upload failed: ' + err.message);
     } finally {
       setUploadingAvatar(false);
     }
@@ -116,7 +157,7 @@ export default function ProfilePage() {
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    const isConfirmed = window.confirm('Are you sure you want to save these profile changes?');
+    const isConfirmed = window.confirm('Save profile changes and updated Joined Date?');
     if (!isConfirmed) return;
 
     setSaving(true);
@@ -134,7 +175,7 @@ export default function ProfilePage() {
     if (error) {
       toast.error('Failed to update profile: ' + error.message);
     } else {
-      toast.success('Profile details updated successfully!');
+      toast.success('Profile details updated!');
       fetchProfile();
     }
   };
@@ -151,7 +192,7 @@ export default function ProfilePage() {
       return;
     }
 
-    const isConfirmed = window.confirm('Are you sure you want to update your password?');
+    const isConfirmed = window.confirm('Confirm updating security password?');
     if (!isConfirmed) return;
 
     const { error } = await supabase.auth.updateUser({ password: newPassword });
@@ -168,7 +209,7 @@ export default function ProfilePage() {
   if (loading) {
     return (
       <main className="min-h-screen bg-transparent flex items-center justify-center">
-        <p className="text-gray-600 font-medium">Loading Profile...</p>
+        <p className="text-gray-600 font-medium">Loading User Profile...</p>
       </main>
     );
   }
@@ -186,12 +227,13 @@ export default function ProfilePage() {
                 <User className="w-12 h-12 text-gray-400" />
               )}
             </div>
-            <label className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center text-white text-xs font-semibold opacity-0 group-hover:opacity-100 cursor-pointer transition">
-              {uploadingAvatar ? 'Uploading...' : 'Change Photo'}
+            <label className="absolute inset-0 bg-black/40 rounded-full flex flex-col items-center justify-center text-white text-xs font-semibold opacity-0 group-hover:opacity-100 cursor-pointer transition">
+              <Crop className="w-4 h-4 mb-1" />
+              <span>{uploadingAvatar ? 'Saving...' : 'Crop Photo'}</span>
               <input
                 type="file"
                 accept="image/*"
-                onChange={handleAvatarUpload}
+                onChange={handleFileSelect}
                 disabled={uploadingAvatar}
                 className="hidden"
               />
@@ -204,7 +246,7 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* Personal & Employment Info Form */}
+        {/* Personal & Employment Form */}
         <div className="bg-white/50 backdrop-blur-xl p-6 rounded-3xl border border-white/70 shadow-xl space-y-6">
           <h2 className="text-xl font-semibold text-gray-800 border-b border-gray-200/50 pb-3">Personal & Employment Information</h2>
           <form onSubmit={handleSaveProfile} className="space-y-4">
@@ -244,7 +286,7 @@ export default function ProfilePage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">Joined Date</label>
+                <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">Joined Date (Editable)</label>
                 <input
                   type="date"
                   value={joinedDate}
@@ -274,7 +316,7 @@ export default function ProfilePage() {
           </form>
         </div>
 
-        {/* Change Password Form */}
+        {/* Password Form */}
         <div className="bg-white/50 backdrop-blur-xl p-6 rounded-3xl border border-white/70 shadow-xl space-y-6">
           <h2 className="text-xl font-semibold text-gray-800 border-b border-gray-200/50 pb-3">Change Security Password</h2>
           <form onSubmit={handleChangePassword} className="space-y-4">
@@ -313,6 +355,60 @@ export default function ProfilePage() {
           </form>
         </div>
       </div>
+
+      {/* Image Crop Modal */}
+      {selectedImageSrc && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-6 space-y-4 border border-white">
+            <div className="flex items-center justify-between border-b pb-2">
+              <h3 className="text-base font-bold text-gray-900">Crop Profile Photo</h3>
+              <button onClick={() => setSelectedImageSrc(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="relative w-48 h-48 mx-auto rounded-full overflow-hidden border-4 border-blue-900 shadow-inner flex items-center justify-center bg-gray-100">
+              <img
+                ref={imageRef}
+                src={selectedImageSrc}
+                alt="Crop preview"
+                style={{ transform: `scale(${zoomLevel})` }}
+                className="max-w-full max-h-full object-cover transition-transform"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1 text-center">Zoom & Adjust</label>
+              <input
+                type="range"
+                min="1"
+                max="3"
+                step="0.1"
+                value={zoomLevel}
+                onChange={(e) => setZoomLevel(parseFloat(e.target.value))}
+                className="w-full"
+              />
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setSelectedImageSrc(null)}
+                className="w-1/2 bg-gray-200 text-gray-800 text-xs font-semibold py-2 rounded-xl hover:bg-gray-300"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCropAndUpload}
+                disabled={uploadingAvatar}
+                className="w-1/2 bg-blue-900 text-white text-xs font-semibold py-2 rounded-xl hover:bg-blue-800 flex items-center justify-center gap-1"
+              >
+                <Check className="w-4 h-4" />
+                {uploadingAvatar ? 'Uploading...' : 'Apply Crop'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 
@@ -16,7 +15,7 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
 
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
@@ -35,16 +34,17 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center p-4 bg-transparent">
       <div className="max-w-md w-full bg-white/60 backdrop-blur-2xl rounded-3xl p-8 border border-white shadow-2xl space-y-6">
-        {/* HYDAC Company Logo Header */}
-        <div className="flex flex-col items-center space-y-2">
-          <div className="bg-red-600 text-white font-black text-2xl tracking-wider px-6 py-2 rounded-xl shadow-md">
-            HYDAC
+        {/* Original Restored HYDAC Brand Header */}
+        <div className="flex flex-col items-center space-y-3">
+          <div className="flex items-center justify-center">
+            <span className="text-3xl font-black tracking-widest text-red-600 uppercase font-sans">
+              HYDAC
+            </span>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 mt-2">Sign In</h1>
+          <h1 className="text-xl font-bold text-gray-900">Sign In</h1>
           <p className="text-xs text-gray-500">Access the HYDAC Leave Portal</p>
         </div>
 
-        {/* Authentication Form */}
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">Email</label>

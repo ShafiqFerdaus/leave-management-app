@@ -72,7 +72,7 @@ export default function MacDock({ userRole: propRole }: { userRole?: string }) {
     async function checkAuthSession() {
       const { data: { session } } = await supabase.auth.getSession();
 
-      // Hide MacDock on authentication pages or if user is unauthenticated
+      // Hide dock completely on unauthenticated or auth routes
       if (!session || ['/login', '/register', '/forgot-password'].includes(pathname)) {
         setIsAuthenticated(false);
         return;
@@ -106,12 +106,14 @@ export default function MacDock({ userRole: propRole }: { userRole?: string }) {
     router.push('/login');
   };
 
-  // Render nothing if user is not logged in or on auth pages
   if (!isAuthenticated) return null;
 
+  // STRICT ROLE FILTERING:
+  // - MANAGER only sees Manager Dashboard
+  // - SUPER_ADMIN only sees Super Admin Dashboard
   const navItems = [
     { title: 'Employee Portal', icon: <Home className="w-5 h-5" />, path: '/' },
-    ...(role === 'MANAGER' || role === 'SUPER_ADMIN' || role === 'ADMIN'
+    ...(role === 'MANAGER'
       ? [{ title: 'Manager Dashboard', icon: <Users className="w-5 h-5" />, path: '/manager' }]
       : []),
     ...(role === 'SUPER_ADMIN' || role === 'ADMIN'
