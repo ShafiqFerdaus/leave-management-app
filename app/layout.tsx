@@ -1,14 +1,10 @@
-import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
 import './globals.css';
 import { Toaster } from 'sonner';
-import Navbar from './components/Navbar';
+import MacDock from './components/MacDock'; // Updated import path to match app/components location
 
-const inter = Inter({ subsets: ['latin'] });
-
-export const metadata: Metadata = {
+export const metadata = {
   title: 'HYDAC Leave Portal',
-  description: 'Employee Leave Management System for HYDAC',
+  description: 'Enterprise Leave Management System',
 };
 
 export default function RootLayout({
@@ -18,14 +14,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={inter.className}>
-        {/* Global Toaster for feedback notifications */}
+      <body className="bg-gradient-to-br from-slate-100 via-blue-50 to-indigo-100 min-h-screen text-gray-900 antialiased relative">
         <Toaster position="top-right" richColors />
-        
-        {/* Global Navbar Header */}
-        <Navbar />
-
         {children}
+        {/* macOS Dock Navigation Bar */}
+        <MacDock />
       </body>
     </html>
   );

@@ -25,14 +25,22 @@ interface LeaveRequest {
   };
 }
 
+interface ManagedEmployee {
+  id: string;
+  full_name: string;
+}
+
 export default function ManagerDashboard() {
   const router = useRouter();
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
+  const [managedEmployees, setManagedEmployees] = useState<ManagedEmployee[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [accessDenied, setAccessDenied] = useState(false);
-  const [activeEmail, setActiveEmail] = useState<string>('');
-  const [activeRole, setActiveRole] = useState<string>('');
+  
+  // Filter States
+  const [selectedEmployee, setSelectedEmployee] = useState<string>('ALL');
+  const [selectedLeaveType, setSelectedLeaveType] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('ALL');
 
   useEffect(() => {
@@ -49,38 +57,54 @@ export default function ManagerDashboard() {
       return;
     }
 
-    const currentEmail = session.user.email || '';
-    setActiveEmail(currentEmail);
-
-    const { data: userProfile, error } = await supabase
+    // Verify manager or admin role
+    const { data: userProfile } = await supabase
       .from('users')
       .select('role')
       .eq('id', session.user.id)
       .single();
 
-    if (error || !userProfile) {
-      console.warn('Role verification error:', error?.message);
-    }
+    const userRole = (userProfile?.role || '').toString().trim().toUpperCase();
 
-    const rawRole = userProfile?.role || 'UNKNOWN';
-    const userRole = rawRole.toString().trim().toUpperCase();
-    setActiveRole(userRole);
-
-    if (userRole !== 'MANAGER' && userRole !== 'ADMIN') {
+    if (userRole !== 'MANAGER' && userRole !== 'SUPER_ADMIN' && userRole !== 'ADMIN') {
       setAccessDenied(true);
       setLoading(false);
       return;
     }
 
     setAccessDenied(false);
-    await fetchRequests();
+
+    // Fetch employees assigned under this manager
+    const { data: staffList } = await supabase
+      .from('users')
+      .select('id, full_name')
+      .eq('manager_id', session.user.id);
+
+    if (staffList) {
+      setManagedEmployees(staffList);
+    }
+
+    await fetchRequests(session.user.id, userRole);
   }
 
-  async function fetchRequests() {
-    const { data, error } = await supabase
+  async function fetchRequests(managerId: string, role: string) {
+    let query = supabase
       .from('leave_requests')
       .select('*, users!user_id(full_name, email), leave_types(name)')
       .order('created_at', { ascending: false });
+
+    // If role is MANAGER, only retrieve leave requests for their assigned staff
+    if (role === 'MANAGER') {
+      const { data: staff } = await supabase
+        .from('users')
+        .select('id')
+        .eq('manager_id', managerId);
+
+      const staffIds = staff?.map((s) => s.id) || [];
+      query = query.in('user_id', staffIds);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('Error fetching requests:', error.message);
@@ -107,77 +131,6 @@ export default function ManagerDashboard() {
       return;
     }
 
-    const currentYear = new Date().getFullYear();
-    const isEL = req.leave_types?.name.toLowerCase().includes('emergency');
-
-    if (isEL) {
-      const { data: userBalances } = await supabase
-        .from('leave_balances')
-        .select('*, leave_types(name)')
-        .eq('user_id', req.user_id)
-        .eq('year', currentYear);
-
-      const alBalance = userBalances?.find((b) => b.leave_types?.name.toLowerCase().includes('annual'));
-      const elBalance = userBalances?.find((b) => b.leave_types?.name.toLowerCase().includes('emergency'));
-      const unpaidBalance = userBalances?.find((b) => b.leave_types?.name.toLowerCase().includes('unpaid'));
-
-      const reqDays = req.total_days;
-      const alRemaining = alBalance ? alBalance.total_allocated - alBalance.used_days : 0;
-
-      if (alRemaining >= reqDays) {
-        if (alBalance) {
-          await supabase
-            .from('leave_balances')
-            .update({ used_days: alBalance.used_days + reqDays })
-            .eq('id', alBalance.id);
-        }
-      } else if (alRemaining > 0) {
-        const excessDays = reqDays - alRemaining;
-        if (alBalance) {
-          await supabase
-            .from('leave_balances')
-            .update({ used_days: alBalance.total_allocated })
-            .eq('id', alBalance.id);
-        }
-        if (unpaidBalance) {
-          await supabase
-            .from('leave_balances')
-            .update({ used_days: unpaidBalance.used_days + excessDays })
-            .eq('id', unpaidBalance.id);
-        }
-      } else {
-        if (unpaidBalance) {
-          await supabase
-            .from('leave_balances')
-            .update({ used_days: unpaidBalance.used_days + reqDays })
-            .eq('id', unpaidBalance.id);
-        }
-      }
-
-      if (elBalance) {
-        await supabase
-          .from('leave_balances')
-          .update({ used_days: elBalance.used_days + reqDays })
-          .eq('id', elBalance.id);
-      }
-    } else {
-      const { data: approvedRequests } = await supabase
-        .from('leave_requests')
-        .select('total_days')
-        .eq('user_id', req.user_id)
-        .eq('leave_type_id', req.leave_type_id)
-        .eq('status', 'APPROVED');
-
-      const totalUsedDays = approvedRequests?.reduce((sum, item) => sum + item.total_days, 0) || 0;
-
-      await supabase
-        .from('leave_balances')
-        .update({ used_days: totalUsedDays })
-        .eq('user_id', req.user_id)
-        .eq('leave_type_id', req.leave_type_id)
-        .eq('year', currentYear);
-    }
-
     toast.success(`Leave application for ${req.users?.full_name || 'employee'} approved.`);
 
     // Send email notification to applicant
@@ -188,24 +141,18 @@ export default function ManagerDashboard() {
         body: JSON.stringify({
           to: req.users.email,
           subject: `[HYDAC Leave Portal] Leave Application Approved`,
-          html: `
-            <div style="font-family: sans-serif; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
-              <h2 style="color: #166534;">Leave Application Approved</h2>
-              <p>Hi <strong>${req.users.full_name}</strong>,</p>
-              <p>Your leave application for <strong>${req.leave_types?.name}</strong> (${req.start_date} to ${req.end_date}) has been <span style="color: #166534; font-weight: bold;">APPROVED</span>.</p>
-            </div>
-          `,
+          html: `<p>Your leave application for <strong>${req.leave_types?.name}</strong> has been APPROVED.</p>`,
         }),
       }).catch((err) => console.error('Email notification error:', err));
     }
 
     setActionLoading(null);
-    fetchRequests();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) fetchRequests(session.user.id, 'MANAGER');
   };
 
   const handleReject = async (id: string, applicantName?: string) => {
     setActionLoading(id);
-    
     const targetReq = requests.find((r) => r.id === id);
 
     await supabase
@@ -215,7 +162,6 @@ export default function ManagerDashboard() {
 
     toast.error(`Leave application for ${applicantName || 'employee'} rejected.`);
 
-    // Send email notification to applicant
     if (targetReq?.users?.email) {
       fetch('/api/send-email', {
         method: 'POST',
@@ -223,60 +169,23 @@ export default function ManagerDashboard() {
         body: JSON.stringify({
           to: targetReq.users.email,
           subject: `[HYDAC Leave Portal] Leave Application Status Update`,
-          html: `
-            <div style="font-family: sans-serif; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
-              <h2 style="color: #991b1b;">Leave Application Status Update</h2>
-              <p>Hi <strong>${applicantName || 'Employee'}</strong>,</p>
-              <p>Your leave application (${targetReq.start_date} to ${targetReq.end_date}) has been <span style="color: #991b1b; font-weight: bold;">REJECTED</span>.</p>
-            </div>
-          `,
+          html: `<p>Your leave application has been REJECTED.</p>`,
         }),
       }).catch((err) => console.error('Email notification error:', err));
     }
 
     setActionLoading(null);
-    fetchRequests();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) fetchRequests(session.user.id, 'MANAGER');
   };
 
-  const exportToCSV = () => {
-    if (requests.length === 0) {
-      toast.error('No data available to export.');
-      return;
-    }
-
-    const headers = ['Employee Name', 'Email', 'Leave Type', 'Start Date', 'End Date', 'Days', 'Reason', 'Status', 'Submitted At'];
-    
-    const rows = filteredRequests.map((req) => [
-      `"${req.users?.full_name || 'N/A'}"`,
-      `"${req.users?.email || 'N/A'}"`,
-      `"${req.leave_types?.name || 'N/A'}"`,
-      `"${req.start_date}"`,
-      `"${req.end_date}"`,
-      req.total_days,
-      `"${req.reason.replace(/"/g, '""')}"`,
-      `"${req.status}"`,
-      `"${new Date(req.created_at).toLocaleDateString()}"`,
-    ]);
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `HYDAC_Leave_Report_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toast.success('CSV report exported successfully!');
-  };
-
+  // Filter requests based on status, selected employee, and leave type
   const filteredRequests = requests.filter((req) => {
-    if (statusFilter === 'ALL') return true;
-    return req.status === statusFilter;
+    const matchesStatus = statusFilter === 'ALL' || req.status === statusFilter;
+    const matchesEmployee = selectedEmployee === 'ALL' || req.user_id === selectedEmployee;
+    const matchesType = selectedLeaveType === 'ALL' || req.leave_types?.name === selectedLeaveType;
+    return matchesStatus && matchesEmployee && matchesType;
   });
-
-  const totalPending = requests.filter((r) => r.status === 'PENDING').length;
-  const totalApproved = requests.filter((r) => r.status === 'APPROVED').length;
-  const totalRejected = requests.filter((r) => r.status === 'REJECTED').length;
 
   if (loading) {
     return (
@@ -288,18 +197,10 @@ export default function ManagerDashboard() {
 
   if (accessDenied) {
     return (
-      <main className="min-h-[calc(100vh-4rem)] bg-gray-50 flex items-center justify-center p-4">
+      <main className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-xl shadow-sm border border-red-200 p-8 text-center space-y-4">
-          <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto text-xl font-bold">
-            !
-          </div>
           <h1 className="text-xl font-bold text-gray-900">Access Denied</h1>
-          <p className="text-sm text-gray-500">
-            Logged in as <span className="font-semibold text-gray-800">{activeEmail}</span> (Role: <span className="font-semibold text-gray-800">{activeRole}</span>).
-          </p>
-          <p className="text-xs text-gray-400">
-            You do not have manager privileges to view this portal.
-          </p>
+          <p className="text-sm text-gray-500">You do not have manager privileges to view this portal.</p>
           <button
             onClick={() => router.push('/')}
             className="w-full bg-blue-900 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-800 transition"
@@ -312,79 +213,75 @@ export default function ManagerDashboard() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 py-10 px-4 sm:px-6 lg:px-8">
+    <main className="min-h-screen bg-gray-50/50 py-10 px-4 sm:px-6 lg:px-8 pb-32">
       <div className="max-w-6xl mx-auto space-y-8">
         {/* Header */}
         <div className="border-b border-gray-200 pb-4 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">HYDAC Leave Portal</h1>
-            <p className="text-gray-500">Manager Approval Dashboard</p>
-          </div>
-          <div className="flex items-center">
-            <img
-              src="/hydac-logo.png"
-              alt="HYDAC Logo"
-              className="h-12 w-auto object-contain"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-              }}
-            />
+            <h1 className="text-3xl font-bold text-gray-900">Manager Dashboard</h1>
+            <p className="text-gray-500">Review and filter leave applications for your staff</p>
           </div>
         </div>
 
-        {/* Dashboard Analytics Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
-            <p className="text-xs font-semibold text-gray-500 uppercase">Total Applications</p>
-            <p className="text-3xl font-bold text-gray-900 mt-2">{requests.length}</p>
-          </div>
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-yellow-200 bg-yellow-50/30">
-            <p className="text-xs font-semibold text-yellow-700 uppercase">Pending Approval</p>
-            <p className="text-3xl font-bold text-yellow-800 mt-2">{totalPending}</p>
-          </div>
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-green-200 bg-green-50/30">
-            <p className="text-xs font-semibold text-green-700 uppercase">Approved</p>
-            <p className="text-3xl font-bold text-green-800 mt-2">{totalApproved}</p>
-          </div>
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-red-200 bg-red-50/30">
-            <p className="text-xs font-semibold text-red-700 uppercase">Rejected</p>
-            <p className="text-3xl font-bold text-red-800 mt-2">{totalRejected}</p>
-          </div>
-        </div>
-
-        {/* Requests Management Panel */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-            <h2 className="text-xl font-semibold text-gray-800">Leave Applications</h2>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                onClick={exportToCSV}
-                className="bg-gray-800 text-white text-xs px-3.5 py-2 rounded-lg hover:bg-gray-700 font-semibold transition"
+        {/* Filter Controls Bar */}
+        <div className="bg-white/70 backdrop-blur-md p-4 rounded-xl border border-gray-200 shadow-sm flex flex-wrap gap-4 items-center justify-between">
+          <div className="flex flex-wrap gap-4 items-center">
+            {/* Employee Filter */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Filter Employee</label>
+              <select
+                value={selectedEmployee}
+                onChange={(e) => setSelectedEmployee(e.target.value)}
+                className="bg-white border border-gray-300 rounded-lg text-xs font-medium px-3 py-2 text-gray-800 focus:outline-none"
               >
-                Export CSV
-              </button>
-
-              <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg">
-                {(['ALL', 'PENDING', 'APPROVED', 'REJECTED'] as const).map((status) => (
-                  <button
-                    key={status}
-                    onClick={() => setStatusFilter(status)}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${
-                      statusFilter === status
-                        ? 'bg-white text-blue-900 shadow-sm'
-                        : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                  >
-                    {status}
-                  </button>
+                <option value="ALL">All Employees under me</option>
+                {managedEmployees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.full_name}
+                  </option>
                 ))}
-              </div>
+              </select>
+            </div>
+
+            {/* Leave Type Filter */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Filter Leave Type</label>
+              <select
+                value={selectedLeaveType}
+                onChange={(e) => setSelectedLeaveType(e.target.value)}
+                className="bg-white border border-gray-300 rounded-lg text-xs font-medium px-3 py-2 text-gray-800 focus:outline-none"
+              >
+                <option value="ALL">All Leave Types</option>
+                <option value="Annual Leave">Annual Leave</option>
+                <option value="Medical Leave (MC)">Medical Leave (MC)</option>
+                <option value="Emergency Leave">Emergency Leave</option>
+                <option value="Unpaid Leave">Unpaid Leave</option>
+              </select>
             </div>
           </div>
 
+          {/* Status Tabs */}
+          <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg">
+            {(['ALL', 'PENDING', 'APPROVED', 'REJECTED'] as const).map((status) => (
+              <button
+                key={status}
+                onClick={() => setStatusFilter(status)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${
+                  statusFilter === status
+                    ? 'bg-white text-blue-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                {status}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Applications Table */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
           {filteredRequests.length === 0 ? (
-            <p className="text-gray-500 text-sm">No leave requests found for this category.</p>
+            <p className="text-gray-500 text-sm text-center py-6">No leave requests match the selected filters.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm text-gray-600">
@@ -404,11 +301,8 @@ export default function ManagerDashboard() {
                 <tbody className="divide-y divide-gray-200">
                   {filteredRequests.map((req) => (
                     <tr key={req.id}>
-                      <td className="py-3 px-4">
-                        <div className="font-medium text-gray-900">
-                          {req.users?.full_name || 'Unknown Employee'}
-                        </div>
-                        <div className="text-xs text-gray-400">{req.users?.email}</div>
+                      <td className="py-3 px-4 font-medium text-gray-900">
+                        {req.users?.full_name || 'Unknown'}
                       </td>
                       <td className="py-3 px-4 font-medium text-gray-800">{req.leave_types?.name}</td>
                       <td className="py-3 px-4">{req.start_date}</td>
@@ -423,7 +317,7 @@ export default function ManagerDashboard() {
                             rel="noopener noreferrer"
                             className="text-blue-600 hover:underline text-xs font-semibold"
                           >
-                            View Doc
+                            View
                           </a>
                         ) : (
                           <span className="text-gray-400 text-xs">-</span>
@@ -448,14 +342,14 @@ export default function ManagerDashboard() {
                             <button
                               onClick={() => handleApprove(req)}
                               disabled={actionLoading === req.id}
-                              className="bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-green-700 font-semibold transition disabled:opacity-50"
+                              className="bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-green-700 font-semibold transition"
                             >
                               Approve
                             </button>
                             <button
                               onClick={() => handleReject(req.id, req.users?.full_name)}
                               disabled={actionLoading === req.id}
-                              className="bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-red-700 font-semibold transition disabled:opacity-50"
+                              className="bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-red-700 font-semibold transition"
                             >
                               Reject
                             </button>
