@@ -13,6 +13,7 @@ interface UserProfile {
   job_title?: string;
   manager_id?: string;
   phone_number?: string;
+  joined_date?: string;
 }
 
 interface LeaveType {
@@ -44,9 +45,10 @@ export default function AdminDashboard() {
   const [jobTitle, setJobTitle] = useState('');
   const [managerId, setManagerId] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [joinedDate, setJoinedDate] = useState(new Date().toISOString().split('T')[0]);
   const [quotas, setQuotas] = useState<{ [key: string]: number }>({});
 
-  // Modal edit states
+  // Edit modal states
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [userBalances, setUserBalances] = useState<UserBalance[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -64,7 +66,6 @@ export default function AdminDashboard() {
       return;
     }
 
-    // Verify Super Admin permission
     const { data: profile } = await supabase
       .from('users')
       .select('role')
@@ -85,7 +86,6 @@ export default function AdminDashboard() {
   }
 
   async function fetchData() {
-    // Fetch leave types
     const { data: types } = await supabase.from('leave_types').select('*');
     if (types) {
       setLeaveTypes(types);
@@ -99,7 +99,6 @@ export default function AdminDashboard() {
       setQuotas(defaultQuotas);
     }
 
-    // Fetch user profiles
     const { data: allUsers } = await supabase.from('users').select('*').order('full_name');
     if (allUsers) {
       setUsers(allUsers);
@@ -109,8 +108,11 @@ export default function AdminDashboard() {
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitting(true);
 
+    const isConfirmed = window.confirm(`Confirm registration of new staff: ${fullName}?`);
+    if (!isConfirmed) return;
+
+    setSubmitting(true);
     const leaveAllocations = Object.entries(quotas).map(([leave_type_id, total_days]) => ({
       leave_type_id,
       total_days,
@@ -127,6 +129,7 @@ export default function AdminDashboard() {
           jobTitle,
           managerId,
           phoneNumber,
+          joinedDate,
           leaveAllocations,
         }),
       });
@@ -134,7 +137,7 @@ export default function AdminDashboard() {
       const result = await res.json();
       if (!res.ok) throw new Error(result.error);
 
-      toast.success(`User ${fullName} registered successfully!`);
+      toast.success(`Staff ${fullName} registered successfully!`);
       setEmail('');
       setFullName('');
       setJobTitle('');
@@ -145,6 +148,29 @@ export default function AdminDashboard() {
       toast.error('Registration failed: ' + err.message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDeleteUser = async (user: UserProfile) => {
+    const isConfirmed = window.confirm(
+      `WARNING: Are you sure you want to PERMANENTLY DELETE staff "${user.full_name}"? This action cannot be undone.`
+    );
+    if (!isConfirmed) return;
+
+    try {
+      const res = await fetch('/api/admin/delete-user', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id }),
+      });
+
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error);
+
+      toast.success(`Staff ${user.full_name} deleted from system.`);
+      fetchData();
+    } catch (err: any) {
+      toast.error('Deletion failed: ' + err.message);
     }
   };
 
@@ -161,6 +187,9 @@ export default function AdminDashboard() {
   };
 
   const handleUpdateBalance = async (balanceId: string, newTotal: number, newUsed: number) => {
+    const isConfirmed = window.confirm('Confirm saving new leave quota balances?');
+    if (!isConfirmed) return;
+
     const { error } = await supabase
       .from('leave_balances')
       .update({ total_allocated: newTotal, used_days: newUsed })
@@ -174,7 +203,10 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleRoleChange = async (userId: string, newRole: string) => {
+  const handleRoleChange = async (userId: string, newRole: string, userName: string) => {
+    const isConfirmed = window.confirm(`Confirm changing role of ${userName} to ${newRole}?`);
+    if (!isConfirmed) return;
+
     const { error } = await supabase
       .from('users')
       .update({ role: newRole })
@@ -183,25 +215,25 @@ export default function AdminDashboard() {
     if (error) {
       toast.error('Role update failed: ' + error.message);
     } else {
-      toast.success(`Role changed to ${newRole}`);
+      toast.success(`Role updated to ${newRole}`);
       fetchData();
     }
   };
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-slate-900/10 flex items-center justify-center">
-        <p className="text-gray-600 font-medium">Verifying Authorization...</p>
+      <main className="min-h-screen bg-transparent flex items-center justify-center">
+        <p className="text-gray-600 font-medium">Verifying Super Admin Access...</p>
       </main>
     );
   }
 
   if (accessDenied) {
     return (
-      <main className="min-h-screen bg-slate-900/10 flex items-center justify-center p-4">
+      <main className="min-h-screen bg-transparent flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white/70 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/60 p-8 text-center space-y-4">
           <h1 className="text-xl font-bold text-gray-900">Access Denied</h1>
-          <p className="text-sm text-gray-600">Only HR Super Admin accounts are permitted to access this portal.</p>
+          <p className="text-sm text-gray-600">Only Super Admin accounts are authorized to access this portal.</p>
           <button
             onClick={() => router.push('/')}
             className="w-full bg-blue-900 text-white font-semibold py-2 px-4 rounded-xl hover:bg-blue-800 transition"
@@ -217,9 +249,9 @@ export default function AdminDashboard() {
     <main className="min-h-screen bg-transparent py-10 px-4 sm:px-6 lg:px-8 pb-36">
       <div className="max-w-6xl mx-auto space-y-8">
         {/* Page Header */}
-        <div className="bg-white/40 backdrop-blur-xl border border-white/60 p-6 rounded-3xl shadow-xl shadow-blue-900/5">
-          <h1 className="text-3xl font-bold text-gray-900">HR Super Admin Dashboard</h1>
-          <p className="text-gray-600 mt-1">Manage Staff Entitlements, Job Titles, and Portal Privileges</p>
+        <div className="bg-white/40 backdrop-blur-xl border border-white/60 p-6 rounded-3xl shadow-xl">
+          <h1 className="text-3xl font-bold text-gray-900">Super Admin Dashboard</h1>
+          <p className="text-gray-600 mt-1">Manage Organization Directory, Staff Quotas, and User Credentials</p>
         </div>
 
         {/* Register Staff Panel */}
@@ -263,7 +295,7 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">Job Title</label>
                 <input
@@ -271,6 +303,16 @@ export default function AdminDashboard() {
                   value={jobTitle}
                   onChange={(e) => setJobTitle(e.target.value)}
                   placeholder="e.g. Senior Technician"
+                  className="w-full bg-white/70 border border-white/80 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-900"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">Joined Date</label>
+                <input
+                  type="date"
+                  value={joinedDate}
+                  onChange={(e) => setJoinedDate(e.target.value)}
                   className="w-full bg-white/70 border border-white/80 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-900"
                 />
               </div>
@@ -305,7 +347,7 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Custom Quota Controls */}
+            {/* Custom Quotas */}
             <div className="border-t border-gray-200/50 pt-4">
               <h3 className="text-sm font-semibold text-gray-800 mb-2">Set Leave Quotas (Days)</h3>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -327,14 +369,14 @@ export default function AdminDashboard() {
             <button
               type="submit"
               disabled={submitting}
-              className="bg-blue-900 text-white font-semibold py-2.5 px-6 rounded-xl hover:bg-blue-800 transition shadow-lg shadow-blue-900/20 disabled:opacity-50"
+              className="bg-blue-900 text-white font-semibold py-2.5 px-6 rounded-xl hover:bg-blue-800 transition shadow-lg disabled:opacity-50"
             >
               {submitting ? 'Registering Staff...' : 'Register Staff & Send Credentials'}
             </button>
           </form>
         </div>
 
-        {/* Staff Management Table */}
+        {/* Directory & Actions Table */}
         <div className="bg-white/50 backdrop-blur-xl p-6 rounded-3xl border border-white/70 shadow-xl space-y-4">
           <h2 className="text-xl font-semibold text-gray-800 border-b border-gray-200/50 pb-3">Organization Directory</h2>
           <div className="overflow-x-auto">
@@ -344,7 +386,7 @@ export default function AdminDashboard() {
                   <th className="py-3 px-4">Name & Email</th>
                   <th className="py-3 px-4">Job Title</th>
                   <th className="py-3 px-4">Role</th>
-                  <th className="py-3 px-4 text-center">Action</th>
+                  <th className="py-3 px-4 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200/50">
@@ -358,7 +400,7 @@ export default function AdminDashboard() {
                     <td className="py-3 px-4">
                       <select
                         value={u.role}
-                        onChange={(e) => handleRoleChange(u.id, e.target.value)}
+                        onChange={(e) => handleRoleChange(u.id, e.target.value, u.full_name)}
                         className="border border-white/80 rounded-lg text-xs px-2 py-1 bg-white/80 font-semibold"
                       >
                         <option value="EMPLOYEE">EMPLOYEE</option>
@@ -367,12 +409,20 @@ export default function AdminDashboard() {
                       </select>
                     </td>
                     <td className="py-3 px-4 text-center">
-                      <button
-                        onClick={() => openEditModal(u)}
-                        className="bg-gray-800 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-gray-700 transition"
-                      >
-                        Adjust Quotas
-                      </button>
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => openEditModal(u)}
+                          className="bg-gray-800 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-gray-700 transition"
+                        >
+                          Adjust Quotas
+                        </button>
+                        <button
+                          onClick={() => handleDeleteUser(u)}
+                          className="bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-red-700 transition font-semibold"
+                        >
+                          Delete Staff
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -381,7 +431,7 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Quota Modal */}
+        {/* Edit Quota Modal */}
         {editingUser && (
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-50 flex items-center justify-center p-4">
             <div className="bg-white/90 backdrop-blur-2xl rounded-3xl shadow-2xl max-w-lg w-full p-6 space-y-4 border border-white">
