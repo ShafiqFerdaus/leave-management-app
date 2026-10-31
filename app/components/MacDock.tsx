@@ -19,15 +19,15 @@ interface DockIconProps {
 function DockIcon({ mouseX, title, icon, isActive, onClick, isDanger }: DockIconProps) {
   const ref = useRef<HTMLDivElement>(null);
 
-  // Measure distance for macOS dynamic magnification
+  // Calculate distance from cursor for smooth magnification effect
   const distance = useTransform(mouseX, (val: number) => {
     const bounds = ref.current?.getBoundingClientRect() || { x: 0, width: 0 };
     return val - bounds.x - bounds.width / 2;
   });
 
-  // Smooth magnification spring curve
-  const widthSync = useTransform(distance, [-150, 0, 150], [46, 72, 46]);
-  const width = useSpring(widthSync, { mass: 0.1, stiffness: 220, damping: 14 });
+  // High-performance spring configuration (eliminates rendering lag)
+  const widthSync = useTransform(distance, [-120, 0, 120], [44, 66, 44]);
+  const width = useSpring(widthSync, { mass: 0.1, stiffness: 350, damping: 22 });
 
   return (
     <div className="relative group">
@@ -35,19 +35,19 @@ function DockIcon({ mouseX, title, icon, isActive, onClick, isDanger }: DockIcon
         ref={ref}
         style={{ width, height: width }}
         onClick={onClick}
-        className={`flex items-center justify-center rounded-2xl cursor-pointer transition-all duration-150 backdrop-blur-2xl border shadow-lg ${
+        className={`flex items-center justify-center rounded-2xl cursor-pointer transition-colors duration-150 transform-gpu will-change-transform border shadow-md ${
           isDanger
-            ? 'bg-red-500/15 border-red-300/40 text-red-600 hover:bg-red-500/30'
+            ? 'bg-red-500/20 border-red-300/40 text-red-600 hover:bg-red-500/30'
             : isActive
-            ? 'bg-white/80 border-white/90 text-blue-900 shadow-xl shadow-blue-900/10'
-            : 'bg-white/40 border-white/60 text-gray-700 hover:bg-white/60'
+            ? 'bg-white border-white text-blue-900 shadow-lg shadow-blue-900/10'
+            : 'bg-white/60 border-white/80 text-gray-700 hover:bg-white/90'
         }`}
       >
-        {/* Active item dynamic bouncing effect */}
+        {/* Active item bouncing effect */}
         {isActive ? (
           <motion.div
-            animate={{ y: [0, -4, 0] }}
-            transition={{ repeat: Infinity, duration: 1.5 }}
+            animate={{ y: [0, -3, 0] }}
+            transition={{ repeat: Infinity, duration: 1.8 }}
             className="flex items-center justify-center"
           >
             {icon}
@@ -58,7 +58,7 @@ function DockIcon({ mouseX, title, icon, isActive, onClick, isDanger }: DockIcon
       </motion.div>
 
       {/* Hover tooltip label */}
-      <span className="absolute -top-11 left-1/2 -translate-x-1/2 scale-0 group-hover:scale-100 transition-all duration-200 bg-gray-900/90 text-white text-[11px] font-medium px-3 py-1 rounded-full backdrop-blur-md whitespace-nowrap shadow-xl pointer-events-none z-50">
+      <span className="absolute -top-10 left-1/2 -translate-x-1/2 scale-0 group-hover:scale-100 transition-transform duration-150 bg-gray-900/90 text-white text-[11px] font-medium px-2.5 py-0.5 rounded-md shadow-lg pointer-events-none z-50 whitespace-nowrap">
         {title}
       </span>
     </div>
@@ -117,7 +117,7 @@ export default function MacDock({ userRole: propRole }: { userRole?: string }) {
       <motion.div
         onMouseMove={(e) => mouseX.set(e.pageX)}
         onMouseLeave={() => mouseX.set(Infinity)}
-        className="flex items-end gap-3 px-4 py-3 rounded-3xl bg-white/30 backdrop-blur-2xl border border-white/70 shadow-2xl shadow-blue-950/15"
+        className="flex items-end gap-2.5 px-3 py-2.5 rounded-3xl bg-white/40 backdrop-blur-xl border border-white/60 shadow-xl shadow-black/10 transform-gpu"
       >
         {navItems.map((item) => (
           <DockIcon
@@ -130,8 +130,8 @@ export default function MacDock({ userRole: propRole }: { userRole?: string }) {
           />
         ))}
 
-        {/* Vertical divider */}
-        <div className="w-[1px] h-8 bg-white/60 mx-1 self-center" />
+        {/* Divider line */}
+        <div className="w-[1px] h-7 bg-gray-300/60 mx-0.5 self-center" />
 
         {/* Sign Out Action Button */}
         <DockIcon
