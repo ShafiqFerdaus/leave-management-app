@@ -38,7 +38,7 @@ export default function AdminDashboard() {
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [managers, setManagers] = useState<UserProfile[]>([]);
 
-  // Registration form states - initialize joinedDate as empty string to prevent SSR prerender error
+  // Registration form states
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState('EMPLOYEE');
@@ -48,13 +48,14 @@ export default function AdminDashboard() {
   const [joinedDate, setJoinedDate] = useState('');
   const [quotas, setQuotas] = useState<{ [key: string]: number }>({});
 
-  // Edit modal states
+  // Edit user modal states
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
+  const [editJobTitle, setEditJobTitle] = useState('');
+  const [editJoinedDate, setEditJoinedDate] = useState('');
   const [userBalances, setUserBalances] = useState<UserBalance[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    // Safely assign current date on client-side component mount
     setJoinedDate(new Date().toISOString().split('T')[0]);
     checkAdminRoleAndFetch();
   }, []);
@@ -110,7 +111,6 @@ export default function AdminDashboard() {
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-
     const isConfirmed = window.confirm(`Confirm registration of new staff: ${fullName}?`);
     if (!isConfirmed) return;
 
@@ -155,7 +155,7 @@ export default function AdminDashboard() {
 
   const handleDeleteUser = async (user: UserProfile) => {
     const isConfirmed = window.confirm(
-      `WARNING: Are you sure you want to PERMANENTLY DELETE staff "${user.full_name}"? This action cannot be undone.`
+      `WARNING: Are you sure you want to PERMANENTLY DELETE staff "${user.full_name}"?`
     );
     if (!isConfirmed) return;
 
@@ -169,7 +169,7 @@ export default function AdminDashboard() {
       const result = await res.json();
       if (!res.ok) throw new Error(result.error);
 
-      toast.success(`Staff ${user.full_name} deleted from system.`);
+      toast.success(`Staff ${user.full_name} deleted.`);
       fetchData();
     } catch (err: any) {
       toast.error('Deletion failed: ' + err.message);
@@ -178,6 +178,9 @@ export default function AdminDashboard() {
 
   const openEditModal = async (user: UserProfile) => {
     setEditingUser(user);
+    setEditJobTitle(user.job_title || '');
+    setEditJoinedDate(user.joined_date || new Date().toISOString().split('T')[0]);
+
     const currentYear = new Date().getFullYear();
     const { data: balances } = await supabase
       .from('leave_balances')
@@ -188,10 +191,26 @@ export default function AdminDashboard() {
     if (balances) setUserBalances(balances as any);
   };
 
-  const handleUpdateBalance = async (balanceId: string, newTotal: number, newUsed: number) => {
-    const isConfirmed = window.confirm('Confirm saving new leave quota balances?');
-    if (!isConfirmed) return;
+  const handleSaveUserDetails = async () => {
+    if (!editingUser) return;
 
+    const { error } = await supabase
+      .from('users')
+      .update({
+        job_title: editJobTitle,
+        joined_date: editJoinedDate,
+      })
+      .eq('id', editingUser.id);
+
+    if (error) {
+      toast.error('Failed to update details: ' + error.message);
+    } else {
+      toast.success('Job title and joined date updated!');
+      fetchData();
+    }
+  };
+
+  const handleUpdateBalance = async (balanceId: string, newTotal: number, newUsed: number) => {
     const { error } = await supabase
       .from('leave_balances')
       .update({ total_allocated: newTotal, used_days: newUsed })
@@ -235,7 +254,7 @@ export default function AdminDashboard() {
       <main className="min-h-screen bg-transparent flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white/70 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/60 p-8 text-center space-y-4">
           <h1 className="text-xl font-bold text-gray-900">Access Denied</h1>
-          <p className="text-sm text-gray-600">Only Super Admin accounts are authorized to access this portal.</p>
+          <p className="text-sm text-gray-600">Only Super Admin accounts are authorized.</p>
           <button
             onClick={() => router.push('/')}
             className="w-full bg-blue-900 text-white font-semibold py-2 px-4 rounded-xl hover:bg-blue-800 transition"
@@ -250,13 +269,13 @@ export default function AdminDashboard() {
   return (
     <main className="min-h-screen bg-transparent py-10 px-4 sm:px-6 lg:px-8 pb-36">
       <div className="max-w-6xl mx-auto space-y-8">
-        {/* Page Header */}
+        {/* Header */}
         <div className="bg-white/40 backdrop-blur-xl border border-white/60 p-6 rounded-3xl shadow-xl">
           <h1 className="text-3xl font-bold text-gray-900">Super Admin Dashboard</h1>
-          <p className="text-gray-600 mt-1">Manage Organization Directory, Staff Quotas, and User Credentials</p>
+          <p className="text-gray-600 mt-1">Manage Organization Directory, Staff Quotas, and Job Titles</p>
         </div>
 
-        {/* Register Staff Panel */}
+        {/* Form Register */}
         <div className="bg-white/50 backdrop-blur-xl p-6 rounded-3xl border border-white/70 shadow-xl space-y-6">
           <h2 className="text-xl font-semibold text-gray-800 border-b border-gray-200/50 pb-3">Register New Staff</h2>
           <form onSubmit={handleCreateUser} className="space-y-4">
@@ -378,7 +397,7 @@ export default function AdminDashboard() {
           </form>
         </div>
 
-        {/* Directory & Actions Table */}
+        {/* Directory Table */}
         <div className="bg-white/50 backdrop-blur-xl p-6 rounded-3xl border border-white/70 shadow-xl space-y-4">
           <h2 className="text-xl font-semibold text-gray-800 border-b border-gray-200/50 pb-3">Organization Directory</h2>
           <div className="overflow-x-auto">
@@ -416,7 +435,7 @@ export default function AdminDashboard() {
                           onClick={() => openEditModal(u)}
                           className="bg-gray-800 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-gray-700 transition"
                         >
-                          Adjust Quotas
+                          Edit Profile & Quotas
                         </button>
                         <button
                           onClick={() => handleDeleteUser(u)}
@@ -433,14 +452,49 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Edit Quota Modal */}
+        {/* Modal Edit Staff Details & Leave Quotas */}
         {editingUser && (
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-50 flex items-center justify-center p-4">
-            <div className="bg-white/90 backdrop-blur-2xl rounded-3xl shadow-2xl max-w-lg w-full p-6 space-y-4 border border-white">
-              <h3 className="text-lg font-bold text-gray-900">
-                Adjust Leave Quotas for {editingUser.full_name}
+            <div className="bg-white/90 backdrop-blur-2xl rounded-3xl shadow-2xl max-w-xl w-full p-6 space-y-6 border border-white">
+              <h3 className="text-lg font-bold text-gray-900 border-b pb-2">
+                Edit Information & Quotas for {editingUser.full_name}
               </h3>
-              <div className="space-y-3 max-h-80 overflow-y-auto">
+
+              {/* Edit Job Title & Joined Date Controls */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-white/60 p-4 rounded-2xl border border-gray-200">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">Job Title</label>
+                  <input
+                    type="text"
+                    value={editJobTitle}
+                    onChange={(e) => setEditJobTitle(e.target.value)}
+                    className="w-full border rounded-xl px-3 py-1.5 text-xs text-gray-900 bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 uppercase mb-1">Joined Date</label>
+                  <input
+                    type="date"
+                    value={editJoinedDate}
+                    onChange={(e) => setEditJoinedDate(e.target.value)}
+                    className="w-full border rounded-xl px-3 py-1.5 text-xs text-gray-900 bg-white"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <button
+                    onClick={handleSaveUserDetails}
+                    className="w-full bg-gray-800 text-white text-xs font-semibold py-2 rounded-xl hover:bg-gray-700 transition"
+                  >
+                    Save Job Title & Joined Date
+                  </button>
+                </div>
+              </div>
+
+              {/* Leave Balances Controls */}
+              <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+                <h4 className="text-xs font-bold text-gray-600 uppercase">Adjust Annual Quotas (Year {new Date().getFullYear()})</h4>
                 {userBalances.map((b) => (
                   <div key={b.id} className="bg-white/60 border border-gray-200 p-3 rounded-2xl flex items-center justify-between gap-4">
                     <div>
@@ -474,6 +528,7 @@ export default function AdminDashboard() {
                   </div>
                 ))}
               </div>
+
               <button
                 onClick={() => setEditingUser(null)}
                 className="w-full bg-gray-200 text-gray-800 font-semibold py-2 rounded-xl hover:bg-gray-300"

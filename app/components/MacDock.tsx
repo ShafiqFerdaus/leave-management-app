@@ -19,13 +19,11 @@ interface DockIconProps {
 function DockIcon({ mouseX, title, icon, isActive, onClick, isDanger }: DockIconProps) {
   const ref = useRef<HTMLDivElement>(null);
 
-  // Calculate distance from cursor for smooth magnification effect
   const distance = useTransform(mouseX, (val: number) => {
     const bounds = ref.current?.getBoundingClientRect() || { x: 0, width: 0 };
     return val - bounds.x - bounds.width / 2;
   });
 
-  // High-performance spring configuration (eliminates rendering lag)
   const widthSync = useTransform(distance, [-120, 0, 120], [44, 66, 44]);
   const width = useSpring(widthSync, { mass: 0.1, stiffness: 350, damping: 22 });
 
@@ -43,7 +41,6 @@ function DockIcon({ mouseX, title, icon, isActive, onClick, isDanger }: DockIcon
             : 'bg-white/60 border-white/80 text-gray-700 hover:bg-white/90'
         }`}
       >
-        {/* Active item bouncing effect */}
         {isActive ? (
           <motion.div
             animate={{ y: [0, -3, 0] }}
@@ -57,7 +54,6 @@ function DockIcon({ mouseX, title, icon, isActive, onClick, isDanger }: DockIcon
         )}
       </motion.div>
 
-      {/* Hover tooltip label */}
       <span className="absolute -top-10 left-1/2 -translate-x-1/2 scale-0 group-hover:scale-100 transition-transform duration-150 bg-gray-900/90 text-white text-[11px] font-medium px-2.5 py-0.5 rounded-md shadow-lg pointer-events-none z-50 whitespace-nowrap">
         {title}
       </span>
@@ -70,16 +66,24 @@ export default function MacDock({ userRole: propRole }: { userRole?: string }) {
   const pathname = usePathname();
   const mouseX = useMotionValue(Infinity);
   const [role, setRole] = useState<string>(propRole || '');
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 
   useEffect(() => {
-    if (propRole) {
-      setRole(propRole.toUpperCase());
-      return;
-    }
-
-    async function fetchRole() {
+    async function checkAuthSession() {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+
+      // Hide MacDock on authentication pages or if user is unauthenticated
+      if (!session || ['/login', '/register', '/forgot-password'].includes(pathname)) {
+        setIsAuthenticated(false);
+        return;
+      }
+
+      setIsAuthenticated(true);
+
+      if (propRole) {
+        setRole(propRole.toUpperCase());
+        return;
+      }
 
       const { data: profile } = await supabase
         .from('users')
@@ -92,14 +96,18 @@ export default function MacDock({ userRole: propRole }: { userRole?: string }) {
       }
     }
 
-    fetchRole();
+    checkAuthSession();
   }, [propRole, pathname]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     toast.success('Successfully logged out.');
+    setIsAuthenticated(false);
     router.push('/login');
   };
+
+  // Render nothing if user is not logged in or on auth pages
+  if (!isAuthenticated) return null;
 
   const navItems = [
     { title: 'Employee Portal', icon: <Home className="w-5 h-5" />, path: '/' },
@@ -130,10 +138,8 @@ export default function MacDock({ userRole: propRole }: { userRole?: string }) {
           />
         ))}
 
-        {/* Divider line */}
         <div className="w-[1px] h-7 bg-gray-300/60 mx-0.5 self-center" />
 
-        {/* Sign Out Action Button */}
         <DockIcon
           mouseX={mouseX}
           title="Sign Out"
