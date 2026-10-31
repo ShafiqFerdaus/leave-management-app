@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 
@@ -33,19 +34,26 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-screen flex items-center justify-center p-4 bg-gray-50/50">
-      {/* Exact replica of the original light card */}
+      {/* Container Card */}
       <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-gray-100 shadow-xl shadow-gray-200/50 space-y-6">
         
-        {/* HYDAC Red Capsule Logo Header */}
+        {/* HYDAC Official Image Logo Header */}
         <div className="flex flex-col items-center space-y-2">
-          <div className="bg-red-600 text-white font-black text-2xl tracking-widest px-8 py-2 rounded-full shadow-md">
-            HYDAC
+          <div className="relative w-48 h-14 flex items-center justify-center">
+            <Image
+              src="/hydac-logo.png"
+              alt="HYDAC Logo"
+              width={200}
+              height={60}
+              priority
+              className="object-contain"
+            />
           </div>
           <h1 className="text-2xl font-bold text-gray-900 mt-2">Sign In</h1>
           <p className="text-xs text-gray-500 font-medium">Access the HYDAC Leave Portal</p>
         </div>
 
-        {/* Authentication Form */}
+        {/* Form Login */}
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
