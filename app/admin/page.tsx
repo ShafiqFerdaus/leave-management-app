@@ -38,14 +38,14 @@ export default function AdminDashboard() {
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [managers, setManagers] = useState<UserProfile[]>([]);
 
-  // Registration form states
+  // Registration form states - initialize joinedDate as empty string to prevent SSR prerender error
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState('EMPLOYEE');
   const [jobTitle, setJobTitle] = useState('');
   const [managerId, setManagerId] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [joinedDate, setJoinedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [joinedDate, setJoinedDate] = useState('');
   const [quotas, setQuotas] = useState<{ [key: string]: number }>({});
 
   // Edit modal states
@@ -54,6 +54,8 @@ export default function AdminDashboard() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    // Safely assign current date on client-side component mount
+    setJoinedDate(new Date().toISOString().split('T')[0]);
     checkAdminRoleAndFetch();
   }, []);
 

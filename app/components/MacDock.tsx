@@ -107,7 +107,7 @@ export default function MacDock({ userRole: propRole }: { userRole?: string }) {
       ? [{ title: 'Manager Dashboard', icon: <Users className="w-5 h-5" />, path: '/manager' }]
       : []),
     ...(role === 'SUPER_ADMIN' || role === 'ADMIN'
-      ? [{ title: 'HR Super Admin', icon: <ShieldCheck className="w-5 h-5" />, path: '/admin' }]
+      ? [{ title: 'Super Admin', icon: <ShieldCheck className="w-5 h-5" />, path: '/admin' }]
       : []),
     { title: 'My Profile', icon: <User className="w-5 h-5" />, path: '/profile' },
   ];
